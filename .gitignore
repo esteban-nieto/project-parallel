@@ -1,0 +1,52 @@
+# Environment & secrets
+.env
+.env.*
+!.env.example
+**/*secret*
+**/*token*
+**/*apikey*
+**/*api_key*
+**/*credentials*
+**/*private_key*
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+.venv/
+**/venv/
+**/.venv/
+
+# IDEs / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# SSL / certs
+*.pem
+*.key
+*.crt
+*.pfx
+*.p12
+
+# Docker
+*.pid

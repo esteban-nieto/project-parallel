@@ -1,0 +1,199 @@
+version: '3.8'
+
+services:
+  # ==================== BASES DE DATOS ====================
+  
+  postgres:
+    image: postgres:15-alpine
+    container_name: project-parallel-postgres
+    environment:
+      POSTGRES_DB: project_parallel
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-dev_password_123}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - project-parallel-network
+
+  mongodb:
+    image: mongo:7.0
+    container_name: project-parallel-mongo
+    environment:
+      MONGO_INITDB_DATABASE: project_parallel
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 20s
+      retries: 5
+      start_period: 30s
+    networks:
+      - project-parallel-network
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: project-parallel-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - project-parallel-network
+
+  minio:
+    image: minio/minio:latest
+    container_name: project-parallel-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-dev_password_123}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - project-parallel-network
+
+  # ==================== MICROSERVICIOS ====================
+
+  servicio-autenticacion:
+    build:
+      context: ./servicios/autenticacion
+      dockerfile: Dockerfile
+    container_name: servicio-autenticacion
+    environment:
+      URL_BASE_DATOS: postgresql://admin:${DB_PASSWORD:-dev_password_123}@postgres:5432/project_parallel
+      URL_REDIS: redis://redis:6379/0
+      SECRETO_JWT: ${JWT_SECRET:-cambia-esto-en-produccion-abc123xyz}
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - project-parallel-network
+
+  servicio-historias:
+    build:
+      context: ./servicios/historias
+      dockerfile: Dockerfile
+    container_name: servicio-historias
+    environment:
+      URL_BASE_DATOS: postgresql://admin:${DB_PASSWORD:-dev_password_123}@postgres:5432/project_parallel
+      SECRETO_JWT: ${JWT_SECRET:-cambia-esto-en-produccion-abc123xyz}
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - project-parallel-network
+
+  servicio-audio:
+    build:
+      context: ./servicios/audio
+      dockerfile: Dockerfile
+    container_name: servicio-audio
+    environment:
+      URL_MONGODB: mongodb://mongodb:27017
+      ENDPOINT_MINIO: minio:9000
+      CLAVE_ACCESO_MINIO: ${MINIO_USER:-admin}
+      CLAVE_SECRETA_MINIO: ${MINIO_PASSWORD:-dev_password_123}
+      MINIO_SEGURO: "false"
+      SECRETO_JWT: ${JWT_SECRET:-cambia-esto-en-produccion-abc123xyz}
+    ports:
+      - "8003:8003"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - whisper_models:/root/.cache/whisper
+    networks:
+      - project-parallel-network
+
+  servicio-ia:
+    build:
+      context: ./servicios/ia
+      dockerfile: Dockerfile
+    container_name: servicio-ia
+    environment:
+      URL_MONGODB: mongodb://mongodb:27017
+      CLAVE_API_GEMINI: ${GEMINI_API_KEY}
+      SECRETO_JWT: ${JWT_SECRET:-cambia-esto-en-produccion-abc123xyz}
+    ports:
+      - "8004:8004"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - project-parallel-network
+
+  # ==================== GATEWAY (NGINX) ====================
+  
+  nginx:
+    image: nginx:alpine
+    container_name: project-parallel-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - servicio-autenticacion
+      - servicio-historias
+      - servicio-audio
+      - servicio-ia
+    restart: unless-stopped
+    networks:
+      - project-parallel-network
+
+# ==================== VOLÚMENES ====================
+
+volumes:
+  postgres_data:
+    driver: local
+  mongo_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+  whisper_models:
+    driver: local
+
+# ==================== REDES ====================
+
+networks:
+  project-parallel-network:
+    driver: bridge

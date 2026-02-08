@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Project Parallel | Consola Operativa</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Space+Grotesk:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="noise"></div>
+    <header class="hero">
+      <div class="hero__content">
+        <p class="eyebrow">Project Parallel</p>
+        <h1>Consola Operativa de Historias Clínicas</h1>
+        <p class="lead">
+          Control total de autenticación, historias, audio e IA en una sola
+          pantalla. Diseñada para flujo clínico real.
+        </p>
+        <div class="hero__actions">
+          <button class="btn btn--primary" data-scroll="#auth">Iniciar sesión</button>
+          <button class="btn btn--ghost" data-scroll="#historias">Crear historia</button>
+        </div>
+      </div>
+      <div class="hero__panel">
+        <div class="panel">
+          <div class="panel__title">Estado en vivo</div>
+          <div class="panel__grid">
+            <div class="panel__item" id="health-auth">Auth</div>
+            <div class="panel__item" id="health-historias">Historias</div>
+            <div class="panel__item" id="health-audio">Audio</div>
+            <div class="panel__item" id="health-ia">IA</div>
+          </div>
+          <div class="panel__footer">
+            <span>Gateway</span>
+            <span id="health-gateway">http://localhost</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="card" id="config">
+        <div class="card__header">
+          <h2>Configuración de API</h2>
+          <p>Apunta al gateway de NGINX o a un entorno remoto.</p>
+        </div>
+        <div class="form-grid two-col">
+          <label class="field">
+            <span>Base URL</span>
+            <input id="apiBase" type="text" placeholder="http://localhost" />
+          </label>
+          <label class="field checkbox">
+            <input id="useGateway" type="checkbox" checked />
+            <span>Usar gateway único</span>
+          </label>
+          <label class="field">
+            <span>Auth URL</span>
+            <input id="authBase" type="text" placeholder="http://localhost:8001" />
+          </label>
+          <label class="field">
+            <span>Historias URL</span>
+            <input id="historiasBase" type="text" placeholder="http://localhost:8002" />
+          </label>
+          <label class="field">
+            <span>Audio URL</span>
+            <input id="audioBase" type="text" placeholder="http://localhost:8003" />
+          </label>
+          <label class="field">
+            <span>IA URL</span>
+            <input id="iaBase" type="text" placeholder="http://localhost:8004" />
+          </label>
+          <button class="btn btn--secondary" id="saveBase">Guardar base</button>
+          <button class="btn btn--ghost" id="runHealth">Actualizar salud</button>
+        </div>
+      </section>
+
+      <section class="grid" id="auth">
+        <div class="card">
+          <div class="card__header">
+            <h2>Autenticación</h2>
+            <p>Registro, login y control de sesión JWT.</p>
+          </div>
+          <div class="form-grid">
+            <label class="field">
+              <span>Usuario</span>
+              <input id="authUser" type="text" placeholder="paramedico1" />
+            </label>
+            <label class="field">
+              <span>Contraseña</span>
+              <input id="authPass" type="password" placeholder="password123" />
+            </label>
+            <label class="field">
+              <span>Email (registro)</span>
+              <input id="authEmail" type="email" placeholder="paramedico@hospital.com" />
+            </label>
+            <div class="button-row">
+              <button class="btn btn--primary" id="btnRegister">Registrar</button>
+              <button class="btn btn--secondary" id="btnLogin">Login</button>
+              <button class="btn btn--ghost" id="btnLogout">Cerrar sesión</button>
+            </div>
+          </div>
+          <div class="token-box">
+            <span>Token activo</span>
+            <code id="tokenDisplay">No hay token</code>
+          </div>
+          <pre class="response" id="authResponse">Esperando acción…</pre>
+        </div>
+      </section>
+
+      <section class="grid locked" id="workspace">
+        <div class="card" id="historias">
+          <div class="card__header">
+            <h2>Historias Clínicas</h2>
+            <p>Crear, consultar y filtrar historias del usuario.</p>
+          </div>
+          <div class="form-grid two-col">
+            <label class="field">
+              <span>Paciente</span>
+              <input id="histPaciente" type="text" placeholder="Juan Perez Garcia" />
+            </label>
+            <label class="field">
+              <span>Edad</span>
+              <input id="histEdad" type="number" min="0" max="150" value="45" />
+            </label>
+            <label class="field wide">
+              <span>Motivo</span>
+              <textarea id="histMotivo" rows="2"></textarea>
+            </label>
+            <label class="field wide">
+              <span>Diagnóstico</span>
+              <textarea id="histDiagnostico" rows="2"></textarea>
+            </label>
+            <label class="field wide">
+              <span>Tratamiento</span>
+              <textarea id="histTratamiento" rows="2"></textarea>
+            </label>
+            <label class="field">
+              <span>Ubicación</span>
+              <input id="histUbicacion" type="text" />
+            </label>
+            <label class="field">
+              <span>Signos vitales</span>
+              <input id="histSignos" type="text" />
+            </label>
+            <label class="field wide">
+              <span>Observaciones</span>
+              <textarea id="histObservaciones" rows="2"></textarea>
+            </label>
+            <label class="field">
+              <span>ID audio</span>
+              <input id="histAudioId" type="text" readonly />
+            </label>
+            <div class="button-row">
+              <button class="btn btn--primary" id="btnCrearHistoria">Crear historia</button>
+              <button class="btn btn--ghost" id="btnListarHistorias">Listar</button>
+            </div>
+          </div>
+          <div class="response-grid">
+            <pre class="response" id="histResponse">Esperando acción…</pre>
+            <div class="list" id="histList"></div>
+          </div>
+        </div>
+
+        <div class="card" id="ia">
+          <div class="card__header">
+            <h2>Análisis IA</h2>
+            <p>Corrección y extracción automática con Gemini.</p>
+          </div>
+          <div class="form-grid">
+            <label class="field wide">
+              <span>Texto</span>
+              <textarea id="iaTexto" rows="4"></textarea>
+            </label>
+            <label class="field checkbox">
+              <input id="iaCache" type="checkbox" checked />
+              <span>Usar caché si está disponible</span>
+            </label>
+            <div class="button-row">
+              <button class="btn btn--primary" id="btnAnalizarIa">Analizar</button>
+              <button class="btn btn--ghost" id="btnLimpiarCacheIa">Limpiar caché</button>
+            </div>
+          </div>
+          <pre class="response" id="iaResponse">Esperando acción…</pre>
+        </div>
+
+        <div class="card" id="audio">
+          <div class="card__header">
+            <h2>Audio y Transcripción</h2>
+            <p>Graba con un botón tipo WhatsApp y completa la historia automáticamente.</p>
+          </div>
+          <div class="form-grid">
+            <div class="audio-controls">
+              <button class="btn btn--primary" id="btnGrabar">
+                Mantén presionado para hablar
+              </button>
+              <div class="audio-status" id="audioStatus">Sin grabación</div>
+            </div>
+            <label class="field wide">
+              <span>Archivo de audio</span>
+              <input id="audioFile" type="file" accept="audio/*" />
+            </label>
+            <label class="field">
+              <span>ID de audio</span>
+              <input id="audioId" type="text" placeholder="abc-123..." />
+            </label>
+            <div class="button-row">
+              <button class="btn btn--primary" id="btnSubirAudio">Subir audio</button>
+              <button class="btn btn--ghost" id="btnEstadoAudio">Consultar estado</button>
+              <button class="btn btn--secondary" id="btnDescargarAudio">Descargar</button>
+            </div>
+          </div>
+          <pre class="response" id="audioResponse">Esperando acción…</pre>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>Project Parallel · Consola operativa para equipos clínicos.</p>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
