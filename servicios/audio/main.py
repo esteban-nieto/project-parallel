@@ -8,10 +8,11 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, D
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 import os
 import uuid
 from datetime import datetime
+import asyncio
 from motor.motor_asyncio import AsyncIOMotorClient
 from minio import Minio
 from minio.error import S3Error
@@ -33,6 +34,12 @@ CLAVE_SECRETA_MINIO = os.getenv("CLAVE_SECRETA_MINIO", os.getenv("MINIO_PASSWORD
 BUCKET_MINIO = "archivos-audio"
 MINIO_SEGURO = os.getenv("MINIO_SEGURO", os.getenv("MINIO_SECURE", "False")).lower() == "true"
 SECRETO_JWT = os.getenv("SECRETO_JWT", os.getenv("JWT_SECRET", "cambia-esto-en-produccion-abc123xyz"))
+WHISPER_MODELO = os.getenv("WHISPER_MODELO", "small")
+WHISPER_IDIOMA = os.getenv("WHISPER_IDIOMA", "es")
+WHISPER_BEAM_SIZE = int(os.getenv("WHISPER_BEAM_SIZE", "3"))
+WHISPER_BEST_OF = int(os.getenv("WHISPER_BEST_OF", "3"))
+WHISPER_TEMPERATURA = float(os.getenv("WHISPER_TEMPERATURA", "0"))
+WHISPER_CONDITION_PREV = os.getenv("WHISPER_CONDITION_PREV", "false").lower() == "true"
 
 # ==================== CLIENTES ====================
 app = FastAPI(
@@ -44,6 +51,7 @@ app = FastAPI(
 # CORS
 _origenes = {o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()}
 _origenes.add("http://localhost:5173")
+_origenes.add("http://localhost:5174")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=sorted(_origenes),
@@ -75,8 +83,8 @@ except S3Error as e:
 
 # Modelo Whisper (se carga una vez al inicio)
 print("🔄 Cargando modelo Whisper...")
-modelo_whisper = whisper.load_model("medium")
-print("✅ Modelo Whisper cargado")
+modelo_whisper = whisper.load_model(WHISPER_MODELO)
+print(f"✅ Modelo Whisper cargado ({WHISPER_MODELO})")
 
 # ==================== ESQUEMAS ====================
 class RespuestaSubidaAudio(BaseModel):
@@ -92,6 +100,8 @@ class RespuestaEstadoAudio(BaseModel):
     fecha_creacion: datetime
     fecha_procesamiento: Optional[datetime] = None
     error: Optional[str] = None
+    transcripcion_raw: Optional[str] = None
+    tokens_muestra: Optional[List[str]] = None
 
 class SolicitudTranscripcion(BaseModel):
     id_audio: str = Field(..., description="ID del audio a transcribir")
@@ -207,15 +217,30 @@ async def transcribir_audio(id_audio: str):
             ruta_tmp = tmp.name
         
         try:
-            # Transcribir con Whisper
+            # Transcribir con Whisper en hilo aparte para no bloquear el event loop
             print(f"🎙️ Transcribiendo audio {id_audio}...")
-            resultado = modelo_whisper.transcribe(ruta_tmp, fp16=False, language="es")
+            transcribe_kwargs = {
+                "fp16": False,
+                "language": WHISPER_IDIOMA,
+                "beam_size": WHISPER_BEAM_SIZE,
+                "best_of": WHISPER_BEST_OF,
+                "temperature": WHISPER_TEMPERATURA,
+                "condition_on_previous_text": WHISPER_CONDITION_PREV,
+                "verbose": False,
+            }
+            inicio = datetime.utcnow()
+            resultado = await asyncio.to_thread(
+                modelo_whisper.transcribe,
+                ruta_tmp,
+                **transcribe_kwargs,
+            )
+            duracion_ms = int((datetime.utcnow() - inicio).total_seconds() * 1000)
             transcripcion_raw = resultado.get("text", "").strip()
             
             # Limpiar transcripción
             transcripcion = limpiar_transcripcion(transcripcion_raw)
             
-            print(f"✅ Transcripción completada: {transcripcion[:100]}...")
+            print(f"✅ Transcripción completada en {duracion_ms} ms: {transcripcion[:100]}...")
             
             # Actualizar documento con transcripción
             await coleccion_audios.update_one(
@@ -282,7 +307,7 @@ async def verificar_salud():
 @app.post("/api/v1/audio/subir", response_model=RespuestaSubidaAudio, tags=["Audio"])
 async def subir_audio(
     archivo: UploadFile = File(..., description="Archivo de audio (WAV recomendado)"),
-    tareas_fondo: BackgroundTasks = None,
+    tareas_fondo: BackgroundTasks,
     datos_usuario: dict = Depends(verificar_token)
 ):
     """Subir archivo de audio y activar transcripción automática"""
@@ -350,6 +375,11 @@ async def obtener_estado_audio(
     if doc_audio["id_usuario"] != int(datos_usuario.get("sub")):
         raise HTTPException(status_code=403, detail="No autorizado para ver este audio")
     
+    transcripcion_raw = doc_audio.get("transcripcion_raw")
+    tokens_muestra = None
+    if isinstance(transcripcion_raw, str) and transcripcion_raw.strip():
+        tokens_muestra = transcripcion_raw.strip().split()[:20]
+
     return RespuestaEstadoAudio(
         id_audio=doc_audio["_id"],
         estado=doc_audio["estado"],
@@ -357,7 +387,9 @@ async def obtener_estado_audio(
         duracion_segundos=doc_audio.get("duracion_segundos"),
         fecha_creacion=doc_audio["fecha_creacion"],
         fecha_procesamiento=doc_audio.get("fecha_procesamiento"),
-        error=doc_audio.get("error")
+        error=doc_audio.get("error"),
+        transcripcion_raw=transcripcion_raw,
+        tokens_muestra=tokens_muestra,
     )
 
 @app.get("/api/v1/audio/{id_audio}/descargar", tags=["Audio"])

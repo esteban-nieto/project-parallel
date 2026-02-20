@@ -9,14 +9,19 @@
 **/*credentials*
 **/*private_key*
 
+# Node / frontend
+node_modules/
+**/node_modules/
+dist/
+build/
+.vite/
+
 # Python
 __pycache__/
 *.py[cod]
 *.pyo
 .Python
 *.egg-info/
-dist/
-build/
 pip-wheel-metadata/
 .pytest_cache/
 .mypy_cache/

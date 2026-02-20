@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Project Parallel | Registro Clínico</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" href="favicon.ico" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Registro Clínico</h1>
+        <p>Login + formularios con audio por sección.</p>
+      </div>
+      <div class="status" id="statusBar">Sin sesión</div>
+    </header>
+
+    <main class="layout">
+      <section class="card">
+        <h2>Login</h2>
+        <div class="grid">
+          <label>
+            Usuario
+            <input id="authUser" type="text" placeholder="paramedico1" />
+          </label>
+          <label>
+            Contraseña
+            <input id="authPass" type="password" placeholder="password123" />
+          </label>
+          <div class="actions">
+            <button id="btnLogin">Ingresar</button>
+            <button id="btnLogout" class="ghost">Salir</button>
+          </div>
+        </div>
+        <pre id="authResponse">Esperando...</pre>
+      </section>
+
+      <section class="card locked" id="forms">
+        <h2>Formularios</h2>
+
+        <div class="accordion">
+          <button class="accordion__header" data-section="personales">
+            Datos personales
+          </button>
+          <div class="accordion__body" id="section-personales">
+            <div class="section-grid">
+              <div class="fields">
+                <label>Nombre<input id="p_nombre" type="text" /></label>
+                <label>Edad<input id="p_edad" type="text" /></label>
+                <label>Tipo documento
+                  <select id="p_tipo_doc">
+                    <option value="">Seleccione</option>
+                    <option>CC</option>
+                    <option>TI</option>
+                    <option>RC</option>
+                    <option>CE</option>
+                  </select>
+                </label>
+                <label>Número documento<input id="p_num_doc" type="text" /></label>
+                <label>Sexo
+                  <select id="p_sexo">
+                    <option value="">Seleccione</option>
+                    <option>M</option>
+                    <option>F</option>
+                    <option>O</option>
+                  </select>
+                </label>
+                <label>Di­a nacimiento<input id="p_dia" type="number" /></label>
+                <label>Mes nacimiento<input id="p_mes" type="number" /></label>
+                <label>Año nacimiento<input id="p_anio" type="number" /></label>
+                <label>Estado civil (siglas)
+                  <select id="p_estado_civil">
+                    <option value="">Seleccione</option>
+                    <option>S</option>
+                    <option>C</option>
+                    <option>V</option>
+                    <option>TV</option>
+                    <option>UL</option>
+                  </select>
+                </label>
+                <label>Lugar de nacimiento<input id="p_lugar_nac" type="text" /></label>
+                <label>Aseguradora<input id="p_aseguradora" type="text" /></label>
+                <label>Correo electrónico<input id="p_correo" type="email" /></label>
+                <label>Teléfono<input id="p_telefono" type="text" /></label>
+                <label>Municipio<input id="p_municipio" type="text" /></label>
+              </div>
+              <div class="audio">
+                <button class="record" data-record="personales">Mantén para grabar</button>
+                <div class="audio-status" id="status-personales">Sin grabación</div>
+                <pre id="resp-personales">Sin análisis</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="accordion">
+          <button class="accordion__header" data-section="acompanante">
+            Datos del acompañante
+          </button>
+          <div class="accordion__body" id="section-acompanante">
+            <div class="section-grid">
+              <div class="fields">
+                <label>Nombre<input id="a_nombre" type="text" /></label>
+                <label>Tipo documento
+                  <select id="a_tipo_doc">
+                    <option value="">Seleccione</option>
+                    <option>CC</option>
+                    <option>TI</option>
+                    <option>RC</option>
+                    <option>CE</option>
+                  </select>
+                </label>
+                <label>Número documento<input id="a_num_doc" type="text" /></label>
+                <label>Teléfono<input id="a_telefono" type="text" /></label>
+              </div>
+              <div class="audio">
+                <button class="record" data-record="acompanante">Mantén para grabar</button>
+                <div class="audio-status" id="status-acompanante">Sin grabación</div>
+                <pre id="resp-acompanante">Sin análisis</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="accordion">
+          <button class="accordion__header" data-section="representante">
+            Datos del representante legal
+          </button>
+          <div class="accordion__body" id="section-representante">
+            <div class="section-grid">
+              <div class="fields">
+                <label>Nombre<input id="r_nombre" type="text" /></label>
+                <label>Tipo documento
+                  <select id="r_tipo_doc">
+                    <option value="">Seleccione</option>
+                    <option>CC</option>
+                    <option>TI</option>
+                    <option>RC</option>
+                    <option>CE</option>
+                  </select>
+                </label>
+                <label>Número documento<input id="r_num_doc" type="text" /></label>
+                <label>Teléfono<input id="r_telefono" type="text" /></label>
+              </div>
+              <div class="audio">
+                <button class="record" data-record="representante">Mantén para grabar</button>
+                <div class="audio-status" id="status-representante">Sin grabación</div>
+                <pre id="resp-representante">Sin análisis</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

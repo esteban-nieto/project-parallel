@@ -166,8 +166,17 @@ async function apiFetchService(service, path, options = {}) {
   return payload;
 }
 
-function writeResponse(el, data) {
+function writeResponse(el, data, options = {}) {
+  if (options.append && el.textContent) {
+    el.textContent = `${el.textContent}\n\n${formatJson(data)}`;
+    return;
+  }
   el.textContent = formatJson(data);
+}
+
+function writeError(el, error) {
+  const message = error?.message || String(error);
+  writeResponse(el, `[ERROR] ${message}`, { append: true });
 }
 
 function setAudioStatus(text, isRecording = false) {
@@ -221,7 +230,7 @@ async function esperarTranscripcion(idAudio) {
   setAudioStatus("Transcribiendo…");
   const maxIntentos = 30;
   for (let i = 0; i < maxIntentos; i += 1) {
-    const data = await apiFetch(`/api/v1/audio/${idAudio}/estado`);
+    const data = await apiFetchService("audio", `/api/v1/audio/${idAudio}/estado`);
     if (data.estado === "completado" && data.transcripcion) {
       writeResponse(els.audioResponse, data);
       await analizarTextoIA(data.transcripcion, false);
@@ -272,7 +281,7 @@ async function startRecording() {
         await esperarTranscripcion(result.id_audio);
       }
     } catch (err) {
-      writeResponse(els.audioResponse, err.message);
+      writeError(els.audioResponse, err);
       setAudioStatus("Error en grabación");
     } finally {
       setAudioStatus("Sin grabación");
@@ -346,7 +355,7 @@ els.btnRegister.addEventListener("click", async () => {
     });
     writeResponse(els.authResponse, data);
   } catch (err) {
-    writeResponse(els.authResponse, err.message);
+    writeError(els.authResponse, err);
   }
 });
 
@@ -364,7 +373,7 @@ els.btnLogin.addEventListener("click", async () => {
     setToken(data.token_acceso);
     writeResponse(els.authResponse, data);
   } catch (err) {
-    writeResponse(els.authResponse, err.message);
+    writeError(els.authResponse, err);
   }
 });
 
@@ -375,7 +384,7 @@ els.btnLogout.addEventListener("click", async () => {
     });
     writeResponse(els.authResponse, data);
   } catch (err) {
-    writeResponse(els.authResponse, err.message);
+    writeError(els.authResponse, err);
   } finally {
     setToken("");
   }
@@ -402,7 +411,7 @@ els.btnCrearHistoria.addEventListener("click", async () => {
     writeResponse(els.histResponse, data);
     await listarHistorias();
   } catch (err) {
-    writeResponse(els.histResponse, err.message);
+    writeError(els.histResponse, err);
   }
 });
 
@@ -412,7 +421,7 @@ async function listarHistorias() {
     writeResponse(els.histResponse, data);
     renderHistorias(data.historias || []);
   } catch (err) {
-    writeResponse(els.histResponse, err.message);
+    writeError(els.histResponse, err);
   }
 }
 
@@ -440,7 +449,7 @@ els.btnAnalizarIa.addEventListener("click", async () => {
   try {
     await analizarTextoIA(els.iaTexto.value.trim(), els.iaCache.checked);
   } catch (err) {
-    writeResponse(els.iaResponse, err.message);
+    writeError(els.iaResponse, err);
   }
 });
 
@@ -449,7 +458,7 @@ els.btnLimpiarCacheIa.addEventListener("click", async () => {
     const data = await apiFetchService("ia", "/api/v1/ia/cache/limpiar", { method: "DELETE" });
     writeResponse(els.iaResponse, data);
   } catch (err) {
-    writeResponse(els.iaResponse, err.message);
+    writeError(els.iaResponse, err);
   }
 });
 
@@ -462,7 +471,7 @@ els.btnSubirAudio.addEventListener("click", async () => {
   const formData = new FormData();
   formData.append("archivo", file);
   try {
-    const data = await apiFetch("/api/v1/audio/subir", {
+    const data = await apiFetchService("audio", "/api/v1/audio/subir", {
       method: "POST",
       body: formData,
     });
@@ -473,15 +482,15 @@ els.btnSubirAudio.addEventListener("click", async () => {
       els.histAudioId.value = data.id_audio;
     }
   } catch (err) {
-    writeResponse(els.audioResponse, err.message);
+    writeError(els.audioResponse, err);
   }
 });
 
-els.btnGrabar?.addEventListener("mousedown", async () => {
+  els.btnGrabar?.addEventListener("mousedown", async () => {
   try {
     await startRecording();
   } catch (err) {
-    writeResponse(els.audioResponse, err.message);
+    writeError(els.audioResponse, err);
     setAudioStatus("Error de micrófono");
   }
 });
@@ -493,7 +502,7 @@ els.btnGrabar?.addEventListener("touchstart", async (event) => {
   try {
     await startRecording();
   } catch (err) {
-    writeResponse(els.audioResponse, err.message);
+    writeError(els.audioResponse, err);
     setAudioStatus("Error de micrófono");
   }
 });
@@ -509,7 +518,7 @@ els.btnEstadoAudio.addEventListener("click", async () => {
     const data = await apiFetchService("audio", `/api/v1/audio/${id}/estado`);
     writeResponse(els.audioResponse, data);
   } catch (err) {
-    writeResponse(els.audioResponse, err.message);
+    writeError(els.audioResponse, err);
   }
 });
 
@@ -519,7 +528,7 @@ els.btnDescargarAudio.addEventListener("click", () => {
     writeResponse(els.audioResponse, "Ingresa un ID de audio.");
     return;
   }
-  descargarAudio(id).catch((err) => writeResponse(els.audioResponse, err.message));
+  descargarAudio(id).catch((err) => writeError(els.audioResponse, err));
 });
 
 async function descargarAudio(id) {

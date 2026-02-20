@@ -7,10 +7,10 @@ CRUD completo de historias clínicas con estados y búsquedas
 from fastapi import FastAPI, HTTPException, Depends, Query, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Optional, List
-from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey
-from sqlalchemy.orm import declarative_base
+from typing import Optional, List, Dict, Any, Mapping, cast
+from datetime import datetime, timezone
+from sqlalchemy import create_engine, Integer, String, Text, DateTime, text
+from sqlalchemy.orm import declarative_base, Mapped, mapped_column
 from sqlalchemy.orm import sessionmaker, Session
 import os
 import jwt
@@ -27,7 +27,7 @@ URL_BASE_DATOS = os.getenv(
 SECRETO_JWT = os.getenv("SECRETO_JWT", os.getenv("JWT_SECRET", "cambia-esto-en-produccion-abc123xyz"))
 
 # ==================== CONFIGURACIÓN BASE DE DATOS ====================
-motor = create_engine(URL_BASE_DATOS)
+motor = create_engine(URL_BASE_DATOS, pool_pre_ping=True)
 SesionLocal = sessionmaker(autocommit=False, autoflush=False, bind=motor)
 Base = declarative_base()
 
@@ -35,35 +35,43 @@ Base = declarative_base()
 class HistoriaClinica(Base):
     __tablename__ = "historias_clinicas"
     
-    id = Column(Integer, primary_key=True, index=True)
-    consecutivo = Column(String(50), unique=True, nullable=False, index=True)
-    id_usuario = Column(Integer, nullable=False, index=True)
-    usuario = Column(String(100), nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    consecutivo: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    id_usuario: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    usuario: Mapped[str] = mapped_column(String(100), nullable=False)
     
     # Datos del paciente
-    paciente = Column(String(200), nullable=False)
-    edad = Column(Integer, nullable=False)
+    paciente: Mapped[str] = mapped_column(String(200), nullable=False)
+    edad: Mapped[int] = mapped_column(Integer, nullable=False)
     
     # Datos clínicos
-    motivo = Column(Text, nullable=False)
-    diagnostico = Column(Text)
-    tratamiento = Column(Text)
+    motivo: Mapped[str] = mapped_column(Text, nullable=False)
+    diagnostico: Mapped[Optional[str]] = mapped_column(Text)
+    tratamiento: Mapped[Optional[str]] = mapped_column(Text)
     
     # Datos de audio (referencia al servicio de audio)
-    id_audio = Column(String(100))
-    transcripcion = Column(Text)
-    texto_corregido = Column(Text)
+    id_audio: Mapped[Optional[str]] = mapped_column(String(100))
+    transcripcion: Mapped[Optional[str]] = mapped_column(Text)
+    texto_corregido: Mapped[Optional[str]] = mapped_column(Text)
     
     # Estado y fechas
-    estado = Column(String(20), default="incompleta", index=True)
-    fecha_creacion = Column(DateTime, default=datetime.utcnow, index=True)
-    fecha_actualizacion = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    fecha_completado = Column(DateTime)
+    estado: Mapped[str] = mapped_column(String(20), default="incompleta", index=True)
+    fecha_creacion: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True
+    )
+    fecha_actualizacion: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc)
+    )
+    fecha_completado: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     
     # Datos adicionales
-    ubicacion = Column(String(200))
-    signos_vitales = Column(Text)
-    observaciones = Column(Text)
+    ubicacion: Mapped[Optional[str]] = mapped_column(String(200))
+    signos_vitales: Mapped[Optional[str]] = mapped_column(Text)
+    observaciones: Mapped[Optional[str]] = mapped_column(Text)
 
 # Crear tablas
 Base.metadata.create_all(bind=motor)
@@ -137,6 +145,7 @@ app = FastAPI(
 # CORS
 _origenes = {o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()}
 _origenes.add("http://localhost:5173")
+_origenes.add("http://localhost:5174")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=sorted(_origenes),
@@ -154,7 +163,7 @@ def obtener_bd():
     finally:
         bd.close()
 
-def verificar_token(authorization: Optional[str] = Header(None)) -> dict:
+def verificar_token(authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
     """Verificar token JWT y extraer información del usuario"""
     if not authorization:
         raise HTTPException(status_code=401, detail="Token no proporcionado")
@@ -164,8 +173,8 @@ def verificar_token(authorization: Optional[str] = Header(None)) -> dict:
         if esquema.lower() != "bearer":
             raise HTTPException(status_code=401, detail="Esquema de autorización inválido")
         
-        payload = jwt.decode(token, SECRETO_JWT, algorithms=["HS256"])
-        return payload
+        payload = jwt.decode(token, SECRETO_JWT, algorithms=["HS256"])  # type: ignore[reportUnknownMemberType]
+        return cast(Dict[str, Any], dict(payload))
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expirado")
     except jwt.InvalidTokenError:
@@ -177,13 +186,22 @@ def generar_consecutivo(bd: Session) -> str:
     """Generar consecutivo automático para nueva historia"""
     from sqlalchemy import func
     total = bd.query(func.count(HistoriaClinica.id)).scalar()
-    año_actual = datetime.now().year
+    año_actual = datetime.now(timezone.utc).year
     return f"HC-{año_actual}-{(total + 1):05d}"
+
+def extraer_id_usuario(payload: Mapping[str, Any]) -> int:
+    id_usuario = payload.get("sub")
+    if id_usuario is None:
+        raise HTTPException(status_code=401, detail="Token inválido")
+    try:
+        return int(id_usuario)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Token inválido")
 
 # ==================== ENDPOINTS ====================
 
 @app.get("/", tags=["General"])
-async def raiz():
+async def raiz() -> Dict[str, Any]:
     """Endpoint raíz del servicio"""
     return {
         "servicio": "Project Parallel - Servicio de Historias Clínicas",
@@ -192,11 +210,11 @@ async def raiz():
     }
 
 @app.get("/salud", tags=["General"])
-async def verificar_salud():
+async def verificar_salud() -> Dict[str, Any]:
     """Verificación de salud del servicio"""
     try:
         bd = SesionLocal()
-        bd.execute("SELECT 1")
+        bd.execute(text("SELECT 1"))
         bd.close()
         return {"estado": "saludable", "base_datos": "ok"}
     except Exception as e:
@@ -205,7 +223,7 @@ async def verificar_salud():
 @app.post("/api/v1/historias", response_model=RespuestaHistoria, status_code=201, tags=["Historias"])
 async def crear_historia(
     datos: CrearHistoria,
-    datos_usuario: dict = Depends(verificar_token),
+    datos_usuario: Dict[str, Any] = Depends(verificar_token),
     bd: Session = Depends(obtener_bd)
 ):
     """Crear nueva historia clínica"""
@@ -214,8 +232,8 @@ async def crear_historia(
     
     nueva_historia = HistoriaClinica(
         consecutivo=consecutivo,
-        id_usuario=int(datos_usuario.get("sub")),
-        usuario=datos_usuario.get("usuario"),
+        id_usuario=extraer_id_usuario(datos_usuario),
+        usuario=str(datos_usuario.get("usuario", "")),
         paciente=datos.paciente,
         edad=datos.edad,
         motivo=datos.motivo,
@@ -244,12 +262,12 @@ async def listar_historias(
     fecha_hasta: Optional[datetime] = Query(None, description="Fecha fin (YYYY-MM-DD)"),
     pagina: int = Query(1, ge=1, description="Número de página"),
     por_pagina: int = Query(50, ge=1, le=100, description="Resultados por página"),
-    datos_usuario: dict = Depends(verificar_token),
+    datos_usuario: Dict[str, Any] = Depends(verificar_token),
     bd: Session = Depends(obtener_bd)
 ):
     """Listar historias clínicas con filtros"""
     
-    id_usuario = int(datos_usuario.get("sub"))
+    id_usuario = extraer_id_usuario(datos_usuario)
     
     # Construir query base
     query = bd.query(HistoriaClinica).filter(HistoriaClinica.id_usuario == id_usuario)
@@ -278,13 +296,13 @@ async def listar_historias(
         total=total,
         pagina=pagina,
         por_pagina=por_pagina,
-        historias=historias
+        historias=cast(List[RespuestaHistoria], historias)
     )
 
 @app.get("/api/v1/historias/{consecutivo}", response_model=RespuestaHistoria, tags=["Historias"])
 async def obtener_historia(
     consecutivo: str,
-    datos_usuario: dict = Depends(verificar_token),
+    datos_usuario: Dict[str, Any] = Depends(verificar_token),
     bd: Session = Depends(obtener_bd)
 ):
     """Obtener historia clínica por consecutivo"""
@@ -297,7 +315,7 @@ async def obtener_historia(
         raise HTTPException(status_code=404, detail="Historia no encontrada")
     
     # Verificar que el usuario sea dueño
-    if historia.id_usuario != int(datos_usuario.get("sub")):
+    if historia.id_usuario != extraer_id_usuario(datos_usuario):
         raise HTTPException(status_code=403, detail="No autorizado")
     
     return historia
@@ -306,7 +324,7 @@ async def obtener_historia(
 async def actualizar_historia(
     consecutivo: str,
     datos: ActualizarHistoria,
-    datos_usuario: dict = Depends(verificar_token),
+    datos_usuario: Dict[str, Any] = Depends(verificar_token),
     bd: Session = Depends(obtener_bd)
 ):
     """Actualizar historia clínica"""
@@ -318,11 +336,11 @@ async def actualizar_historia(
     if not historia:
         raise HTTPException(status_code=404, detail="Historia no encontrada")
     
-    if historia.id_usuario != int(datos_usuario.get("sub")):
+    if historia.id_usuario != extraer_id_usuario(datos_usuario):
         raise HTTPException(status_code=403, detail="No autorizado")
     
     # Actualizar campos proporcionados
-    datos_actualizacion = datos.dict(exclude_unset=True)
+    datos_actualizacion = datos.model_dump(exclude_unset=True)
     for campo, valor in datos_actualizacion.items():
         setattr(historia, campo, valor)
     
@@ -335,7 +353,7 @@ async def actualizar_historia(
 async def actualizar_estado_historia(
     consecutivo: str,
     datos_estado: ActualizarEstado,
-    datos_usuario: dict = Depends(verificar_token),
+    datos_usuario: Dict[str, Any] = Depends(verificar_token),
     bd: Session = Depends(obtener_bd)
 ):
     """Actualizar estado de historia clínica"""
@@ -347,14 +365,14 @@ async def actualizar_estado_historia(
     if not historia:
         raise HTTPException(status_code=404, detail="Historia no encontrada")
     
-    if historia.id_usuario != int(datos_usuario.get("sub")):
+    if historia.id_usuario != extraer_id_usuario(datos_usuario):
         raise HTTPException(status_code=403, detail="No autorizado")
     
     historia.estado = datos_estado.estado
     
     # Si se marca como completa, guardar fecha
-    if datos_estado.estado == "completa" and not historia.fecha_completado:
-        historia.fecha_completado = datetime.utcnow()
+    if datos_estado.estado == "completa" and historia.fecha_completado is None:
+        historia.fecha_completado = datetime.now(timezone.utc)
     
     bd.commit()
     bd.refresh(historia)
@@ -364,7 +382,7 @@ async def actualizar_estado_historia(
 @app.delete("/api/v1/historias/{consecutivo}", tags=["Historias"])
 async def eliminar_historia(
     consecutivo: str,
-    datos_usuario: dict = Depends(verificar_token),
+    datos_usuario: Dict[str, Any] = Depends(verificar_token),
     bd: Session = Depends(obtener_bd)
 ):
     """Eliminar historia clínica"""
@@ -376,7 +394,7 @@ async def eliminar_historia(
     if not historia:
         raise HTTPException(status_code=404, detail="Historia no encontrada")
     
-    if historia.id_usuario != int(datos_usuario.get("sub")):
+    if historia.id_usuario != extraer_id_usuario(datos_usuario):
         raise HTTPException(status_code=403, detail="No autorizado")
     
     bd.delete(historia)
@@ -386,12 +404,12 @@ async def eliminar_historia(
 
 @app.get("/api/v1/historias/estadisticas/resumen", tags=["Estadísticas"])
 async def obtener_estadisticas(
-    datos_usuario: dict = Depends(verificar_token),
+    datos_usuario: Dict[str, Any] = Depends(verificar_token),
     bd: Session = Depends(obtener_bd)
-):
+) -> Dict[str, Any]:
     """Obtener estadísticas de historias del usuario"""
     
-    id_usuario = int(datos_usuario.get("sub"))
+    id_usuario = extraer_id_usuario(datos_usuario)
     
     from sqlalchemy import func
     

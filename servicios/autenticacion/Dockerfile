@@ -20,9 +20,9 @@ COPY main.py .
 # Exponer puerto
 EXPOSE 8001
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8001/salud')" || exit 1
+# Health check (urllib para no depender de requests)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/salud')" || exit 1
 
 # Ejecutar aplicación
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2"]

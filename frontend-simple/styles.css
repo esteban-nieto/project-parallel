@@ -1,0 +1,153 @@
+:root {
+  --bg: #f5f2ee;
+  --ink: #1d1c1a;
+  --muted: #5f5b54;
+  --accent: #1f6f8b;
+  --card: #ffffff;
+  --border: #e3ded7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Work Sans", sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem 6vw;
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar h1 {
+  margin: 0;
+}
+
+.status {
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  background: #f0f0f0;
+  font-weight: 600;
+}
+
+.layout {
+  display: grid;
+  gap: 1.5rem;
+  padding: 2rem 6vw 3rem;
+}
+
+.card {
+  background: var(--card);
+  border-radius: 16px;
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+}
+
+.grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.grid label {
+  display: grid;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+
+input,
+select {
+  padding: 0.55rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font: inherit;
+}
+
+.actions {
+  display: flex;
+  gap: 0.6rem;
+}
+
+button {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  padding: 0.6rem 1.2rem;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+pre {
+  background: #0f1012;
+  color: #e7e7e7;
+  padding: 0.75rem;
+  border-radius: 12px;
+  overflow: auto;
+}
+
+.locked {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.accordion__header {
+  width: 100%;
+  text-align: left;
+  margin-top: 1rem;
+  background: #f1ebe4;
+  color: var(--ink);
+}
+
+.accordion__body {
+  display: none;
+  padding: 1rem 0;
+}
+
+.accordion__body.active {
+  display: block;
+}
+
+.section-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 1rem;
+}
+
+.fields {
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.audio {
+  display: grid;
+  gap: 0.6rem;
+  align-content: start;
+}
+
+.record {
+  background: #a83224;
+}
+
+.record.recording {
+  background: #2f8f2f;
+}
+
+.audio-status {
+  font-size: 0.85rem;
+  color: var(--muted);
+}

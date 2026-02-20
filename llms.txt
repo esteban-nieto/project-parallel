@@ -1,0 +1,10 @@
+# Project Parallel
+
+Sistema de historias clínicas para ambulancias.
+API REST con 4 microservicios FastAPI en Python.
+Autenticación JWT en puerto 8001.
+Gestión de historias en puerto 8002.
+Audio y transcripción en puerto 8003.
+Análisis IA con Gemini en puerto 8004.
+Toda la documentación en /docs de cada servicio.
+Variables de entorno en .env (ver env_ejemplo.txt).
