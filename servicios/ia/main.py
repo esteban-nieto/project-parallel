@@ -11,7 +11,7 @@ from typing import Optional, Dict, Any
 import google.generativeai as genai
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 import jwt
 import os
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -24,7 +24,9 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env")
 # ==================== CONFIGURACIÓN ====================
 CLAVE_API_GEMINI = os.getenv("CLAVE_API_GEMINI", os.getenv("GEMINI_API_KEY", ""))
 URL_MONGODB = os.getenv("URL_MONGODB", os.getenv("MONGODB_URL", "mongodb://localhost:27017"))
-SECRETO_JWT = os.getenv("SECRETO_JWT", os.getenv("JWT_SECRET", "cambia-esto-en-produccion-abc123xyz"))
+SECRETO_JWT = os.getenv("SECRETO_JWT", os.getenv("JWT_SECRET", ""))
+if not SECRETO_JWT:
+    raise RuntimeError("SECRETO_JWT/JWT_SECRET es obligatorio")
 
 # Configurar Gemini
 if CLAVE_API_GEMINI:
@@ -119,6 +121,9 @@ class RespuestaExtraccion(BaseModel):
     tiempo_procesamiento_ms: int = Field(..., description="Tiempo de procesamiento en milisegundos")
     desde_cache: bool = Field(default=False, description="Si el resultado vino del cache")
 
+def respuesta_ok(datos: Dict[str, Any], mensaje: str = "Operaci?n exitosa") -> Dict[str, Any]:
+    return {"estado": "ok", "datos": datos, "mensaje": mensaje}
+
 # ==================== FUNCIONES AUXILIARES ====================
 
 def verificar_token(authorization: Optional[str] = Header(None)) -> dict:
@@ -145,7 +150,7 @@ async def obtener_desde_cache(hash_texto: str) -> Optional[dict]:
     doc = await coleccion_cache_ia.find_one({"hash": hash_texto})
     if doc:
         # Verificar que no sea muy antiguo (7 días)
-        if (datetime.utcnow() - doc["fecha_creacion"]).days < 7:
+        if (datetime.now(timezone.utc) - doc["fecha_creacion"]).days < 7:
             return doc["resultado"]
     return None
 
@@ -158,7 +163,7 @@ async def guardar_en_cache(hash_texto: str, resultado: dict, texto_original: str
                 "hash": hash_texto,
                 "resultado": resultado,
                 "texto_original": texto_original[:500],  # Solo primeros 500 chars
-                "fecha_creacion": datetime.utcnow()
+                "fecha_creacion": datetime.now(timezone.utc)
             }
         },
         upsert=True
@@ -179,7 +184,7 @@ async def registrar_log_ia(
         "modelo": modelo,
         "tiempo_ms": tiempo_ms,
         "desde_cache": desde_cache,
-        "fecha": datetime.utcnow()
+        "fecha": datetime.now(timezone.utc)
     })
 
 def analizar_con_gemini(texto: str) -> dict:
@@ -475,7 +480,7 @@ def construir_prompt_extraccion(texto: str, tipo: str) -> str:
         ]
         reglas = (
             "tipo_documento debe ser CC, TI, RC o CE. "
-            "estado_civil debe ser S, C, V o UL. "
+            "estado_civil debe ser S, C, V, TV o UL. "
             "sexo debe ser M o F. "
             "edad puede ser numero con unidad (ej: '25 aÃ±os' o '10 meses'). "
             "dia_nacimiento, mes_nacimiento, anio_nacimiento deben ser solo numeros. "
@@ -733,7 +738,7 @@ def _normalizar_campos(tipo: str, campos: Dict[str, Any]) -> Dict[str, Any]:
             resultado["sexo"] = "M" if s.startswith("M") else "F" if s.startswith("F") else ""
         if "estado_civil" in resultado:
             ec = str(resultado["estado_civil"]).upper().strip()
-            if ec not in {"S", "C", "V", "UL"}:
+            if ec not in {"S", "C", "V", "TV", "UL"}:
                 ec = ""
             resultado["estado_civil"] = ec
     else:
@@ -806,23 +811,15 @@ def analizar_extraccion(texto: str, tipo: str) -> dict:
 # ==================== ENDPOINTS ====================
 
 @app.get("/", tags=["General"])
-async def raiz():
-    return {
-        "servicio": "Project Parallel - Servicio de IA",
-        "version": "1.0.0",
-        "estado": "funcionando"
-    }
+async def raiz(datos_usuario: dict = Depends(verificar_token)):
+    return respuesta_ok({"servicio": "Project Parallel - Servicio de IA", "version": "1.0.0", "estado": "funcionando"})
 
 @app.get("/salud", tags=["General"])
 async def verificar_salud():
     try:
         await bd.command("ping")
         gemini_ok = bool(CLAVE_API_GEMINI)
-        return {
-            "estado": "saludable",
-            "mongodb": "ok",
-            "gemini_configurado": gemini_ok
-        }
+        return respuesta_ok({"estado": "saludable", "mongodb": "ok", "gemini_configurado": gemini_ok})
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -838,7 +835,7 @@ async def analizar_texto(
     - Mejorar legibilidad
     """
     
-    inicio = datetime.utcnow()
+    inicio = datetime.now(timezone.utc)
     
     # Verificar caché
     hash_texto = generar_hash_cache(solicitud.texto)
@@ -853,14 +850,14 @@ async def analizar_texto(
         else:
             # Analizar con IA
             resultado = analizar_con_gemini(solicitud.texto)
-            tiempo_ms = int((datetime.utcnow() - inicio).total_seconds() * 1000)
+            tiempo_ms = int((datetime.now(timezone.utc) - inicio).total_seconds() * 1000)
             
             # Guardar en caché
             await guardar_en_cache(hash_texto, resultado, solicitud.texto)
     else:
         # Forzar análisis sin caché
         resultado = analizar_con_gemini(solicitud.texto)
-        tiempo_ms = int((datetime.utcnow() - inicio).total_seconds() * 1000)
+        tiempo_ms = int((datetime.now(timezone.utc) - inicio).total_seconds() * 1000)
     
     # Registrar uso
     await registrar_log_ia(
@@ -872,27 +869,14 @@ async def analizar_texto(
         modelo=resultado.get("modelo_usado", "desconocido")
     )
     
-    return {
-        "texto_corregido": resultado["texto_corregido"],
-        "campos_extraidos": CamposExtraidos(
-            paciente=resultado["paciente"],
-            edad=resultado["edad"],
-            motivo=resultado["motivo"],
-            diagnostico=resultado["diagnostico"],
-            tratamiento=resultado["tratamiento"]
-        ),
-        "confianza": resultado.get("confianza", 0.85),
-        "modelo_usado": resultado.get("modelo_usado", "desconocido"),
-        "tiempo_procesamiento_ms": tiempo_ms,
-        "desde_cache": desde_cache
-    }
+    return respuesta_ok({"texto_corregido": resultado["texto_corregido"], "campos_extraidos": {"paciente": resultado["paciente"], "edad": resultado["edad"], "motivo": resultado["motivo"], "diagnostico": resultado["diagnostico"], "tratamiento": resultado["tratamiento"]}, "confianza": resultado.get("confianza", 0.85), "modelo_usado": resultado.get("modelo_usado", "desconocido"), "tiempo_procesamiento_ms": tiempo_ms, "desde_cache": desde_cache})
 
-@app.post("/api/v1/ia/extraer", response_model=RespuestaExtraccion, tags=["Analisis IA"])
+@app.post("/api/v1/ia/extraer", tags=["Analisis IA"])
 async def extraer_campos(
     solicitud: SolicitudExtraccion,
     datos_usuario: dict = Depends(verificar_token)
 ):
-    inicio = datetime.utcnow()
+    inicio = datetime.now(timezone.utc)
     tipo = (solicitud.tipo or "").strip().lower()
     if tipo not in {"personales", "acompanante", "representante"}:
         raise HTTPException(status_code=400, detail="Tipo no soportado")
@@ -908,11 +892,11 @@ async def extraer_campos(
             tiempo_ms = 10
         else:
             resultado = analizar_extraccion(solicitud.texto, tipo)
-            tiempo_ms = int((datetime.utcnow() - inicio).total_seconds() * 1000)
+            tiempo_ms = int((datetime.now(timezone.utc) - inicio).total_seconds() * 1000)
             await guardar_en_cache(hash_texto, resultado, solicitud.texto)
     else:
         resultado = analizar_extraccion(solicitud.texto, tipo)
-        tiempo_ms = int((datetime.utcnow() - inicio).total_seconds() * 1000)
+        tiempo_ms = int((datetime.now(timezone.utc) - inicio).total_seconds() * 1000)
 
     await registrar_log_ia(
         id_usuario=int(datos_usuario.get("sub")),
@@ -923,13 +907,7 @@ async def extraer_campos(
         modelo=resultado.get("modelo_usado", "desconocido")
     )
 
-    return {
-        "campos": resultado.get("campos", {}),
-        "confianza": resultado.get("confianza", 0.85),
-        "modelo_usado": resultado.get("modelo_usado", "desconocido"),
-        "tiempo_procesamiento_ms": tiempo_ms,
-        "desde_cache": desde_cache
-    }
+    return respuesta_ok({"campos": resultado.get("campos", {}), "confianza": resultado.get("confianza", 0.85), "modelo_usado": resultado.get("modelo_usado", "desconocido"), "tiempo_procesamiento_ms": tiempo_ms, "desde_cache": desde_cache})
 
 @app.get("/api/v1/ia/estadisticas", tags=["Estadísticas"])
 async def obtener_estadisticas_ia(
@@ -959,13 +937,7 @@ async def obtener_estadisticas_ia(
     resultado = await coleccion_logs_ia.aggregate(pipeline).to_list(1)
     tiempo_promedio = int(resultado[0].get("tiempo_promedio", 0)) if resultado else 0
     
-    return {
-        "total_analisis": total,
-        "desde_cache": desde_cache,
-        "nuevos_analisis": total - desde_cache,
-        "tiempo_promedio_ms": tiempo_promedio,
-        "porcentaje_cache": round((desde_cache / total * 100), 2) if total > 0 else 0
-    }
+    return respuesta_ok({"total_analisis": total, "desde_cache": desde_cache, "nuevos_analisis": total - desde_cache, "tiempo_promedio_ms": tiempo_promedio, "porcentaje_cache": round((desde_cache / total * 100), 2) if total > 0 else 0})
 
 @app.delete("/api/v1/ia/cache/limpiar", tags=["Cache"])
 async def limpiar_cache(
@@ -973,7 +945,7 @@ async def limpiar_cache(
 ):
     """Limpiar caché antiguo (más de 7 días)"""
     
-    fecha_limite = datetime.utcnow()
+    fecha_limite = datetime.now(timezone.utc)
     from datetime import timedelta
     fecha_limite = fecha_limite - timedelta(days=7)
     

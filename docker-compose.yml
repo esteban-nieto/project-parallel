@@ -86,7 +86,7 @@ services:
     environment:
       URL_BASE_DATOS: postgresql://admin:${DB_PASSWORD:-dev_password_123}@postgres:5432/project_parallel
       URL_REDIS: redis://redis:6379/0
-      SECRETO_JWT: ${JWT_SECRET:-cambia-esto-en-produccion-abc123xyz}
+      SECRETO_JWT: ${JWT_SECRET?JWT_SECRET is required}
     ports:
       - "8001:8001"
     depends_on:
@@ -105,7 +105,7 @@ services:
     container_name: servicio-historias
     environment:
       URL_BASE_DATOS: postgresql://admin:${DB_PASSWORD:-dev_password_123}@postgres:5432/project_parallel
-      SECRETO_JWT: ${JWT_SECRET:-cambia-esto-en-produccion-abc123xyz}
+      SECRETO_JWT: ${JWT_SECRET?JWT_SECRET is required}
     ports:
       - "8002:8002"
     depends_on:
@@ -126,7 +126,7 @@ services:
       CLAVE_ACCESO_MINIO: ${MINIO_USER:-admin}
       CLAVE_SECRETA_MINIO: ${MINIO_PASSWORD:-dev_password_123}
       MINIO_SEGURO: "false"
-      SECRETO_JWT: ${JWT_SECRET:-cambia-esto-en-produccion-abc123xyz}
+      SECRETO_JWT: ${JWT_SECRET?JWT_SECRET is required}
     ports:
       - "8003:8003"
     depends_on:
@@ -148,7 +148,7 @@ services:
     environment:
       URL_MONGODB: mongodb://mongodb:27017
       CLAVE_API_GEMINI: ${GEMINI_API_KEY}
-      SECRETO_JWT: ${JWT_SECRET:-cambia-esto-en-produccion-abc123xyz}
+      SECRETO_JWT: ${JWT_SECRET?JWT_SECRET is required}
     ports:
       - "8004:8004"
     depends_on:
@@ -178,7 +178,7 @@ services:
     networks:
       - project-parallel-network
 
-# ==================== VOLÚMENES ====================
+# ==================== VOLÃšMENES ====================
 
 volumes:
   postgres_data:
@@ -197,3 +197,4 @@ volumes:
 networks:
   project-parallel-network:
     driver: bridge
+

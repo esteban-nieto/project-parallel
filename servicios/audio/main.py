@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
 from motor.motor_asyncio import AsyncIOMotorClient
 from minio import Minio
@@ -33,13 +33,16 @@ CLAVE_ACCESO_MINIO = os.getenv("CLAVE_ACCESO_MINIO", os.getenv("MINIO_USER", "ad
 CLAVE_SECRETA_MINIO = os.getenv("CLAVE_SECRETA_MINIO", os.getenv("MINIO_PASSWORD", "password"))
 BUCKET_MINIO = "archivos-audio"
 MINIO_SEGURO = os.getenv("MINIO_SEGURO", os.getenv("MINIO_SECURE", "False")).lower() == "true"
-SECRETO_JWT = os.getenv("SECRETO_JWT", os.getenv("JWT_SECRET", "cambia-esto-en-produccion-abc123xyz"))
-WHISPER_MODELO = os.getenv("WHISPER_MODELO", "small")
+SECRETO_JWT = os.getenv("SECRETO_JWT", os.getenv("JWT_SECRET", ""))
+WHISPER_MODELO = os.getenv("WHISPER_MODELO", "tiny")
 WHISPER_IDIOMA = os.getenv("WHISPER_IDIOMA", "es")
 WHISPER_BEAM_SIZE = int(os.getenv("WHISPER_BEAM_SIZE", "3"))
 WHISPER_BEST_OF = int(os.getenv("WHISPER_BEST_OF", "3"))
 WHISPER_TEMPERATURA = float(os.getenv("WHISPER_TEMPERATURA", "0"))
 WHISPER_CONDITION_PREV = os.getenv("WHISPER_CONDITION_PREV", "false").lower() == "true"
+
+if not SECRETO_JWT:
+    raise RuntimeError("SECRETO_JWT/JWT_SECRET es obligatorio")
 
 # ==================== CLIENTES ====================
 app = FastAPI(
@@ -105,6 +108,10 @@ class RespuestaEstadoAudio(BaseModel):
 
 class SolicitudTranscripcion(BaseModel):
     id_audio: str = Field(..., description="ID del audio a transcribir")
+
+def respuesta_ok(datos, mensaje: str = "Operaci?n exitosa") -> dict:
+    return {"estado": "ok", "datos": datos, "mensaje": mensaje
+    }
 
 # ==================== FUNCIONES AUXILIARES ====================
 
@@ -195,7 +202,7 @@ async def transcribir_audio(id_audio: str):
             {
                 "$set": {
                     "estado": "procesando",
-                    "fecha_inicio_procesamiento": datetime.utcnow()
+                    "fecha_inicio_procesamiento": datetime.now(timezone.utc)
                 }
             }
         )
@@ -228,13 +235,13 @@ async def transcribir_audio(id_audio: str):
                 "condition_on_previous_text": WHISPER_CONDITION_PREV,
                 "verbose": False,
             }
-            inicio = datetime.utcnow()
+            inicio = datetime.now(timezone.utc)
             resultado = await asyncio.to_thread(
                 modelo_whisper.transcribe,
                 ruta_tmp,
                 **transcribe_kwargs,
             )
-            duracion_ms = int((datetime.utcnow() - inicio).total_seconds() * 1000)
+            duracion_ms = int((datetime.now(timezone.utc) - inicio).total_seconds() * 1000)
             transcripcion_raw = resultado.get("text", "").strip()
             
             # Limpiar transcripción
@@ -250,7 +257,7 @@ async def transcribir_audio(id_audio: str):
                         "estado": "completado",
                         "transcripcion": transcripcion,
                         "transcripcion_raw": transcripcion_raw,
-                        "fecha_procesamiento": datetime.utcnow()
+                        "fecha_procesamiento": datetime.now(timezone.utc)
                     }
                 }
             )
@@ -269,7 +276,7 @@ async def transcribir_audio(id_audio: str):
                 "$set": {
                     "estado": "fallido",
                     "error": str(e),
-                    "fecha_procesamiento": datetime.utcnow()
+                    "fecha_procesamiento": datetime.now(timezone.utc)
                 }
             }
         )
@@ -277,13 +284,9 @@ async def transcribir_audio(id_audio: str):
 # ==================== ENDPOINTS ====================
 
 @app.get("/", tags=["General"])
-async def raiz():
+async def raiz(datos_usuario: dict = Depends(verificar_token)):
     """Endpoint raíz del servicio"""
-    return {
-        "servicio": "Project Parallel - Servicio de Audio",
-        "version": "1.0.0",
-        "estado": "funcionando"
-    }
+    return respuesta_ok({"servicio": "Project Parallel - Servicio de Audio", "version": "1.0.0", "estado": "funcionando"})
 
 @app.get("/salud", tags=["General"])
 async def verificar_salud():
@@ -295,19 +298,14 @@ async def verificar_salud():
         # Verificar MinIO
         cliente_minio.bucket_exists(BUCKET_MINIO)
         
-        return {
-            "estado": "saludable",
-            "mongodb": "ok",
-            "minio": "ok",
-            "modelo_whisper": "cargado"
-        }
+        return respuesta_ok({"estado": "saludable", "mongodb": "ok", "minio": "ok", "modelo_whisper": "cargado"})
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"No saludable: {str(e)}")
 
-@app.post("/api/v1/audio/subir", response_model=RespuestaSubidaAudio, tags=["Audio"])
+@app.post("/api/v1/audio/subir", tags=["Audio"])
 async def subir_audio(
-    archivo: UploadFile = File(..., description="Archivo de audio (WAV recomendado)"),
     tareas_fondo: BackgroundTasks,
+    archivo: UploadFile = File(..., description="Archivo de audio (WAV recomendado)"),
     datos_usuario: dict = Depends(verificar_token)
 ):
     """Subir archivo de audio y activar transcripción automática"""
@@ -343,7 +341,7 @@ async def subir_audio(
         "tipo_contenido": archivo.content_type,
         "estado": "pendiente",
         "transcripcion": None,
-        "fecha_creacion": datetime.utcnow(),
+        "fecha_creacion": datetime.now(timezone.utc),
         "fecha_procesamiento": None,
         "error": None
     }
@@ -359,7 +357,7 @@ async def subir_audio(
         mensaje="Audio subido exitosamente. Transcripción en progreso."
     )
 
-@app.get("/api/v1/audio/{id_audio}/estado", response_model=RespuestaEstadoAudio, tags=["Audio"])
+@app.get("/api/v1/audio/{id_audio}/estado", tags=["Audio"])
 async def obtener_estado_audio(
     id_audio: str,
     datos_usuario: dict = Depends(verificar_token)
@@ -380,17 +378,7 @@ async def obtener_estado_audio(
     if isinstance(transcripcion_raw, str) and transcripcion_raw.strip():
         tokens_muestra = transcripcion_raw.strip().split()[:20]
 
-    return RespuestaEstadoAudio(
-        id_audio=doc_audio["_id"],
-        estado=doc_audio["estado"],
-        transcripcion=doc_audio.get("transcripcion"),
-        duracion_segundos=doc_audio.get("duracion_segundos"),
-        fecha_creacion=doc_audio["fecha_creacion"],
-        fecha_procesamiento=doc_audio.get("fecha_procesamiento"),
-        error=doc_audio.get("error"),
-        transcripcion_raw=transcripcion_raw,
-        tokens_muestra=tokens_muestra,
-    )
+    return respuesta_ok({"id_audio": doc_audio["_id"], "estado": doc_audio["estado"], "transcripcion": doc_audio.get("transcripcion"), "duracion_segundos": doc_audio.get("duracion_segundos"), "fecha_creacion": doc_audio["fecha_creacion"].isoformat() if doc_audio.get("fecha_creacion") else None, "fecha_procesamiento": doc_audio.get("fecha_procesamiento").isoformat() if doc_audio.get("fecha_procesamiento") else None, "error": doc_audio.get("error"), "transcripcion_raw": transcripcion_raw, "tokens_muestra": tokens_muestra})
 
 @app.get("/api/v1/audio/{id_audio}/descargar", tags=["Audio"])
 async def descargar_audio(
@@ -444,7 +432,7 @@ async def eliminar_audio(
     # Eliminar de MongoDB
     await coleccion_audios.delete_one({"_id": id_audio})
     
-    return {"mensaje": "Audio eliminado exitosamente"}
+    return respuesta_ok({}, "Audio eliminado exitosamente")
 
 @app.get("/api/v1/audio/usuario/listar", tags=["Audio"])
 async def listar_audios_usuario(
@@ -461,9 +449,7 @@ async def listar_audios_usuario(
     
     audios = await cursor.to_list(length=limite)
     
-    return {
-        "total": len(audios),
-        "audios": [
+    return respuesta_ok({"total": len(audios), "audios": [
             {
                 "id_audio": a["_id"],
                 "nombre_archivo": a["nombre_archivo_original"],
@@ -473,7 +459,7 @@ async def listar_audios_usuario(
             }
             for a in audios
         ]
-    }
+    })
 
 # ==================== EJECUCIÓN ====================
 if __name__ == "__main__":

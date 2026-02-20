@@ -50,7 +50,13 @@ async function apiFetch(base, path, options = {}) {
     ? await response.json()
     : await response.text();
   if (!response.ok) {
+    if (payload && typeof payload === "object" && payload.mensaje) {
+      throw new Error(payload.mensaje);
+    }
     throw new Error(typeof payload === "string" ? payload : JSON.stringify(payload));
+  }
+  if (payload && typeof payload === "object" && payload.estado === "ok" && Object.prototype.hasOwnProperty.call(payload, "datos")) {
+    return payload.datos;
   }
   return payload;
 }

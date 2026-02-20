@@ -24,7 +24,9 @@ URL_BASE_DATOS = os.getenv(
     "URL_BASE_DATOS",
     os.getenv("DATABASE_URL", "postgresql://admin:password@localhost:5432/project_parallel"),
 )
-SECRETO_JWT = os.getenv("SECRETO_JWT", os.getenv("JWT_SECRET", "cambia-esto-en-produccion-abc123xyz"))
+SECRETO_JWT = os.getenv("SECRETO_JWT", os.getenv("JWT_SECRET", ""))
+if not SECRETO_JWT:
+    raise RuntimeError("SECRETO_JWT/JWT_SECRET es obligatorio")
 
 # ==================== CONFIGURACIÓN BASE DE DATOS ====================
 motor = create_engine(URL_BASE_DATOS, pool_pre_ping=True)
@@ -154,6 +156,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def respuesta_ok(datos: Any, mensaje: str = "Operaci?n exitosa") -> Dict[str, Any]:
+    return {"estado": "ok", "datos": datos, "mensaje": mensaje}
+
 # ==================== DEPENDENCIAS ====================
 def obtener_bd():
     """Dependency para obtener sesión de base de datos"""
@@ -201,7 +206,7 @@ def extraer_id_usuario(payload: Mapping[str, Any]) -> int:
 # ==================== ENDPOINTS ====================
 
 @app.get("/", tags=["General"])
-async def raiz() -> Dict[str, Any]:
+async def raiz(datos_usuario: Dict[str, Any] = Depends(verificar_token)) -> Dict[str, Any]:
     """Endpoint raíz del servicio"""
     return {
         "servicio": "Project Parallel - Servicio de Historias Clínicas",
@@ -216,11 +221,11 @@ async def verificar_salud() -> Dict[str, Any]:
         bd = SesionLocal()
         bd.execute(text("SELECT 1"))
         bd.close()
-        return {"estado": "saludable", "base_datos": "ok"}
+        return respuesta_ok({"estado": "saludable", "base_datos": "ok"})
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"No saludable: {str(e)}")
 
-@app.post("/api/v1/historias", response_model=RespuestaHistoria, status_code=201, tags=["Historias"])
+@app.post("/api/v1/historias", status_code=201, tags=["Historias"])
 async def crear_historia(
     datos: CrearHistoria,
     datos_usuario: Dict[str, Any] = Depends(verificar_token),
@@ -252,9 +257,9 @@ async def crear_historia(
     bd.commit()
     bd.refresh(nueva_historia)
     
-    return nueva_historia
+    return respuesta_ok(RespuestaHistoria.model_validate(nueva_historia).model_dump(), "Historia creada")
 
-@app.get("/api/v1/historias", response_model=ListaHistorias, tags=["Historias"])
+@app.get("/api/v1/historias", tags=["Historias"])
 async def listar_historias(
     estado: Optional[str] = Query(None, pattern="^(incompleta|completa)$"),
     paciente: Optional[str] = Query(None, description="Buscar por nombre de paciente"),
@@ -292,14 +297,9 @@ async def listar_historias(
     offset = (pagina - 1) * por_pagina
     historias = query.order_by(HistoriaClinica.fecha_creacion.desc()).offset(offset).limit(por_pagina).all()
     
-    return ListaHistorias(
-        total=total,
-        pagina=pagina,
-        por_pagina=por_pagina,
-        historias=cast(List[RespuestaHistoria], historias)
-    )
+    return respuesta_ok(ListaHistorias(total=total, pagina=pagina, por_pagina=por_pagina, historias=cast(List[RespuestaHistoria], historias)).model_dump())
 
-@app.get("/api/v1/historias/{consecutivo}", response_model=RespuestaHistoria, tags=["Historias"])
+@app.get("/api/v1/historias/{consecutivo}", tags=["Historias"])
 async def obtener_historia(
     consecutivo: str,
     datos_usuario: Dict[str, Any] = Depends(verificar_token),
@@ -318,9 +318,9 @@ async def obtener_historia(
     if historia.id_usuario != extraer_id_usuario(datos_usuario):
         raise HTTPException(status_code=403, detail="No autorizado")
     
-    return historia
+    return respuesta_ok(RespuestaHistoria.model_validate(historia).model_dump())
 
-@app.put("/api/v1/historias/{consecutivo}", response_model=RespuestaHistoria, tags=["Historias"])
+@app.put("/api/v1/historias/{consecutivo}", tags=["Historias"])
 async def actualizar_historia(
     consecutivo: str,
     datos: ActualizarHistoria,
@@ -347,9 +347,9 @@ async def actualizar_historia(
     bd.commit()
     bd.refresh(historia)
     
-    return historia
+    return respuesta_ok(RespuestaHistoria.model_validate(historia).model_dump())
 
-@app.put("/api/v1/historias/{consecutivo}/estado", response_model=RespuestaHistoria, tags=["Historias"])
+@app.put("/api/v1/historias/{consecutivo}/estado", tags=["Historias"])
 async def actualizar_estado_historia(
     consecutivo: str,
     datos_estado: ActualizarEstado,
@@ -377,7 +377,7 @@ async def actualizar_estado_historia(
     bd.commit()
     bd.refresh(historia)
     
-    return historia
+    return respuesta_ok(RespuestaHistoria.model_validate(historia).model_dump())
 
 @app.delete("/api/v1/historias/{consecutivo}", tags=["Historias"])
 async def eliminar_historia(
@@ -400,7 +400,7 @@ async def eliminar_historia(
     bd.delete(historia)
     bd.commit()
     
-    return {"mensaje": f"Historia {consecutivo} eliminada exitosamente"}
+    return respuesta_ok({}, f"Historia {consecutivo} eliminada exitosamente")
 
 @app.get("/api/v1/historias/estadisticas/resumen", tags=["Estadísticas"])
 async def obtener_estadisticas(
@@ -432,16 +432,7 @@ async def obtener_estadisticas(
         HistoriaClinica.id_usuario == id_usuario
     ).order_by(HistoriaClinica.fecha_creacion.desc()).first()
     
-    return {
-        "total_historias": total,
-        "incompletas": incompletas,
-        "completas": completas,
-        "ultima_historia": {
-            "consecutivo": ultima.consecutivo,
-            "paciente": ultima.paciente,
-            "fecha": ultima.fecha_creacion
-        } if ultima else None
-    }
+    return respuesta_ok({"total_historias": total, "incompletas": incompletas, "completas": completas, "ultima_historia": {"consecutivo": ultima.consecutivo, "paciente": ultima.paciente, "fecha": ultima.fecha_creacion.isoformat()} if ultima else None})
 
 # ==================== EJECUCIÓN ====================
 if __name__ == "__main__":

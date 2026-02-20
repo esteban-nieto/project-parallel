@@ -28,10 +28,13 @@ URL_BASE_DATOS = os.getenv(
     os.getenv("DATABASE_URL", "postgresql://admin:password@localhost:5432/project_parallel"),
 )
 URL_REDIS = os.getenv("URL_REDIS", os.getenv("REDIS_URL", "redis://localhost:6379"))
-SECRETO_JWT = os.getenv("SECRETO_JWT", os.getenv("JWT_SECRET", "cambia-esto-en-produccion-abc123xyz"))
+SECRETO_JWT = os.getenv("SECRETO_JWT", os.getenv("JWT_SECRET", ""))
 ALGORITMO_JWT = os.getenv("JWT_ALGORITHM", "HS256")
 MINUTOS_EXPIRACION_TOKEN_ACCESO = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 DIAS_EXPIRACION_TOKEN_REFRESCO = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+
+if not SECRETO_JWT:
+    raise RuntimeError("SECRETO_JWT/JWT_SECRET es obligatorio")
 
 # ==================== CONFIGURACIÓN BASE DE DATOS ====================
 if "connect_timeout=" not in URL_BASE_DATOS:
@@ -119,6 +122,9 @@ app.add_middleware(
 )
 
 seguridad = HTTPBearer()
+
+def respuesta_ok(datos: Any, mensaje: str = "Operaci?n exitosa") -> Dict[str, Any]:
+    return {"estado": "ok", "datos": datos, "mensaje": mensaje}
 
 # ==================== DEPENDENCIAS ====================
 def obtener_bd():
@@ -221,7 +227,7 @@ async def obtener_usuario_actual(
 # ==================== ENDPOINTS ====================
 
 @app.get("/", tags=["General"])
-async def raiz() -> Dict[str, Any]:
+async def raiz(usuario_actual: Usuario = Depends(obtener_usuario_actual)) -> Dict[str, Any]:
     """Endpoint raíz del servicio"""
     return {
         "servicio": "Project Parallel - Servicio de Autenticación",
@@ -241,12 +247,7 @@ async def verificar_salud() -> Dict[str, Any]:
         # Verificar Redis
         cliente_redis.ping()  # type: ignore[reportUnknownMemberType]
         
-        return {
-            "estado": "saludable",
-            "base_datos": "ok",
-            "redis": "ok",
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
+        return respuesta_ok({"estado": "saludable", "base_datos": "ok", "redis": "ok", "timestamp": datetime.now(timezone.utc).isoformat()})
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -291,7 +292,7 @@ async def registrar_usuario(datos_usuario: RegistroUsuario, bd: Session = Depend
     bd.commit()
     bd.refresh(nuevo_usuario)
     
-    return nuevo_usuario
+    return respuesta_ok(RespuestaUsuario.model_validate(nuevo_usuario).model_dump(), "Usuario registrado")
 
 @app.post("/api/v1/auth/login", response_model=RespuestaToken, tags=["Autenticación"])
 async def iniciar_sesion(credenciales: LoginUsuario, bd: Session = Depends(obtener_bd)) -> Dict[str, Any]:
@@ -325,12 +326,7 @@ async def iniciar_sesion(credenciales: LoginUsuario, bd: Session = Depends(obten
         delta_expiracion=timedelta(days=DIAS_EXPIRACION_TOKEN_REFRESCO)
     )
     
-    return {
-        "token_acceso": token_acceso,
-        "token_refresco": token_refresco,
-        "tipo_token": "bearer",
-        "expira_en": MINUTOS_EXPIRACION_TOKEN_ACCESO * 60
-    }
+    return respuesta_ok({"token_acceso": token_acceso, "token_refresco": token_refresco, "tipo_token": "bearer", "expira_en": MINUTOS_EXPIRACION_TOKEN_ACCESO * 60}, "Login exitoso")
 
 @app.post("/api/v1/auth/refrescar", response_model=RespuestaToken, tags=["Autenticación"])
 async def refrescar_token(
@@ -372,12 +368,7 @@ async def refrescar_token(
         delta_expiracion=timedelta(minutes=MINUTOS_EXPIRACION_TOKEN_ACCESO)
     )
     
-    return {
-        "token_acceso": nuevo_token_acceso,
-        "token_refresco": token,
-        "tipo_token": "bearer",
-        "expira_en": MINUTOS_EXPIRACION_TOKEN_ACCESO * 60
-    }
+    return respuesta_ok({"token_acceso": nuevo_token_acceso, "token_refresco": token, "tipo_token": "bearer", "expira_en": MINUTOS_EXPIRACION_TOKEN_ACCESO * 60}, "Token refrescado")
 
 @app.post("/api/v1/auth/cerrar-sesion", tags=["Autenticación"])
 async def cerrar_sesion(
@@ -405,10 +396,10 @@ async def cerrar_sesion(
     
     return {"mensaje": "Sesión cerrada exitosamente"}
 
-@app.get("/api/v1/auth/yo", response_model=RespuestaUsuario, tags=["Usuarios"])
+@app.get("/api/v1/auth/yo", tags=["Usuarios"])
 async def obtener_info_usuario_actual(usuario_actual: Usuario = Depends(obtener_usuario_actual)) -> RespuestaUsuario:
     """Obtener información del usuario autenticado actual"""
-    return usuario_actual
+    return respuesta_ok(RespuestaUsuario.model_validate(usuario_actual).model_dump())
 
 @app.put("/api/v1/auth/cambiar-contrasena", tags=["Usuarios"])
 async def cambiar_contrasena(
